@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TableNav — Fast, Focused CSV &amp; XLSX Editing</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #ffffff;
+    --bg2:       #f7f8fa;
+    --bg3:       #eef0f4;
+    --text:      #1a1d23;
+    --text2:     #4a5568;
+    --text3:     #718096;
+    --accent:    #1a6ef5;
+    --accent2:   #0d4fc4;
+    --border:    #e2e6ed;
+    --card-bg:   #ffffff;
+    --hero-bg:   #0f1623;
+    --hero-text: #e8edf5;
+    --hero-sub:  #8fa3be;
+    --tag-bg:    #e8f0fe;
+    --tag-text:  #1a6ef5;
+    --radius:    10px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── NAV ── */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(15,22,35,0.97);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    padding: 0 32px;
+    display: flex; align-items: center; gap: 32px;
+    height: 56px;
+  }
+  .nav-logo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 17px; font-weight: 700; color: #fff; letter-spacing: -0.3px;
+    white-space: nowrap;
+  }
+  .nav-logo svg { flex-shrink: 0; }
+  .nav-links { display: flex; gap: 24px; margin-left: auto; }
+  .nav-links a {
+    font-size: 13.5px; font-weight: 500; color: #8fa3be;
+    transition: color 0.15s;
+  }
+  .nav-links a:hover { color: #fff; text-decoration: none; }
+  .nav-cta {
+    background: var(--accent); color: #fff !important;
+    padding: 7px 18px; border-radius: 6px;
+    font-weight: 600 !important; font-size: 13px !important;
+    transition: background 0.15s !important;
+  }
+  .nav-cta:hover { background: var(--accent2) !important; }
+
+  /* ── HERO ── */
+  .hero {
+    background: var(--hero-bg);
+    padding: 90px 32px 100px;
+    text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(26,110,245,0.18) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-eyebrow {
+    display: inline-block;
+    background: rgba(26,110,245,0.18); color: #6fa3f7;
+    border: 1px solid rgba(26,110,245,0.35);
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 5px 14px; border-radius: 20px;
+    margin-bottom: 28px;
+  }
+  .hero h1 {
+    font-size: clamp(36px, 6vw, 62px);
+    font-weight: 800; letter-spacing: -1.5px; line-height: 1.08;
+    color: #fff; max-width: 760px; margin: 0 auto 22px;
+  }
+  .hero h1 em { font-style: normal; color: #6fa3f7; }
+  .hero-sub {
+    font-size: clamp(16px, 2.2vw, 20px); color: var(--hero-sub);
+    max-width: 560px; margin: 0 auto 44px; line-height: 1.6;
+  }
+  .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: #fff;
+    padding: 14px 28px; border-radius: 8px;
+    font-size: 15px; font-weight: 700; letter-spacing: -0.2px;
+    transition: background 0.15s, transform 0.1s;
+    box-shadow: 0 4px 20px rgba(26,110,245,0.4);
+  }
+  .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); text-decoration: none; }
+  .btn-ghost {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.07); color: #c8d8ec;
+    border: 1px solid rgba(255,255,255,0.14);
+    padding: 14px 28px; border-radius: 8px;
+    font-size: 15px; font-weight: 600;
+    transition: background 0.15s;
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.12); text-decoration: none; color: #fff; }
+  .hero-note {
+    margin-top: 22px; font-size: 12.5px; color: #4e6482;
+  }
+
+  /* ── SECTION WRAPPERS ── */
+  .section { padding: 88px 32px; }
+  .section-alt { background: var(--bg2); }
+  .section-dark { background: var(--hero-bg); }
+  .container { max-width: 1080px; margin: 0 auto; }
+
+  .section-label {
+    display: inline-block;
+    background: var(--tag-bg); color: var(--tag-text);
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 4px 12px; border-radius: 20px;
+    margin-bottom: 14px;
+  }
+  .section-title {
+    font-size: clamp(26px, 4vw, 40px);
+    font-weight: 800; letter-spacing: -0.8px; line-height: 1.15;
+    margin-bottom: 14px;
+  }
+  .section-sub {
+    font-size: 17px; color: var(--text2); max-width: 520px; margin-bottom: 56px;
+  }
+
+  /* ── FEATURE GRID ── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 24px;
+  }
+  .feature-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 30px 28px;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .feature-card:hover {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    transform: translateY(-2px);
+  }
+  .feature-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: var(--tag-bg);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 18px; flex-shrink: 0;
+  }
+  .feature-icon svg { width: 22px; height: 22px; }
+  .feature-card h3 {
+    font-size: 16px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.2px;
+  }
+  .feature-card p { font-size: 14px; color: var(--text2); line-height: 1.65; }
+
+  /* ── STATS BAND ── */
+  .stats-band {
+    background: var(--accent);
+    padding: 52px 32px;
+    text-align: center;
+  }
+  .stats-grid {
+    display: flex; gap: 0; flex-wrap: wrap; justify-content: center;
+    max-width: 900px; margin: 0 auto;
+  }
+  .stat {
+    flex: 1; min-width: 180px;
+    padding: 16px 24px;
+    border-right: 1px solid rgba(255,255,255,0.2);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-num {
+    font-size: 40px; font-weight: 800; color: #fff;
+    letter-spacing: -1px; line-height: 1;
+  }
+  .stat-label { font-size: 13px; color: rgba(255,255,255,0.75); margin-top: 6px; }
+
+  /* ── COMPARISON TABLE ── */
+  .compare-wrap { overflow-x: auto; }
+  .compare-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 14px; min-width: 540px;
+  }
+  .compare-table th {
+    padding: 12px 20px; text-align: left;
+    background: var(--bg3); font-weight: 700; font-size: 13px;
+    border-bottom: 2px solid var(--border);
+  }
+  .compare-table th:not(:first-child) { text-align: center; }
+  .compare-table td {
+    padding: 13px 20px; border-bottom: 1px solid var(--border);
+    color: var(--text2);
+  }
+  .compare-table td:not(:first-child) { text-align: center; }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table tr:hover td { background: var(--bg2); }
+  .col-tn { font-weight: 700; color: var(--accent); }
+  .check { color: #22c55e; font-size: 18px; }
+  .cross { color: #ef4444; font-size: 16px; }
+  .partial { color: #f59e0b; font-size: 15px; }
+
+  /* ── CTA BAND ── */
+  .cta-band {
+    background: var(--hero-bg);
+    padding: 88px 32px;
+    text-align: center;
+  }
+  .cta-band h2 {
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 800; color: #fff; letter-spacing: -0.8px; margin-bottom: 16px;
+  }
+  .cta-band p { font-size: 18px; color: var(--hero-sub); margin-bottom: 40px; }
+
+  /* ── FOOTER ── */
+  footer {
+    background: #080d16;
+    padding: 40px 32px;
+    text-align: center;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  footer p { font-size: 13px; color: #3d526b; }
+  footer a { color: #4e6a94; }
+  footer a:hover { color: #8fa3be; }
+
+  @media (max-width: 640px) {
+    .nav-links { display: none; }
+    .hero { padding: 60px 20px 70px; }
+    .section { padding: 60px 20px; }
+    .stat { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.2); }
+    .stat:last-child { border-bottom: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect width="26" height="26" rx="6" fill="#1a6ef5"/>
+      <rect x="5" y="7" width="16" height="2" rx="1" fill="white"/>
+      <rect x="5" y="12" width="16" height="2" rx="1" fill="white" opacity="0.7"/>
+      <rect x="5" y="17" width="10" height="2" rx="1" fill="white" opacity="0.4"/>
+    </svg>
+    TableNav
+  </div>
+  <div class="nav-links">
+    <a href="https://github.com/iswalker/TableNav">GitHub</a>
+    <a href="https://github.com/iswalker/TableNav/releases">Releases</a>
+    <a href="https://github.com/iswalker/TableNav/issues">Issues</a>
+    <a href="https://github.com/iswalker/TableNav" class="nav-cta">Download Free</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-eyebrow">Free &amp; Open Source · Windows</div>
+  <h1>CSV &amp; XLSX editing,<br><em>done right.</em></h1>
+  <p class="hero-sub">TableNav opens in an instant, stays out of your way, and gives you the data tools that actually matter — without the spreadsheet bloat.</p>
+  <div class="hero-actions">
+    <a href="https://github.com/iswalker/TableNav/releases" class="btn-primary">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Download for Windows
+    </a>
+    <a href="https://github.com/iswalker/TableNav" class="btn-ghost">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      View on GitHub
+    </a>
+  </div>
+  <p class="hero-note">Requires Windows 10/11 &nbsp;·&nbsp; WebView2 Runtime (pre-installed on Windows 11)</p>
+</section>
+
+<!-- STATS -->
+<div class="stats-band">
+  <div class="stats-grid">
+    <div class="stat">
+      <div class="stat-num">&lt;1s</div>
+      <div class="stat-label">Cold launch time</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">100%</div>
+      <div class="stat-label">Free &amp; open source</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">1</div>
+      <div class="stat-label">File — no install wizard</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">∞</div>
+      <div class="stat-label">Rows handled virtually</div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">Why TableNav</div>
+    <h2 class="section-title">Everything you need.<br>Nothing you don't.</h2>
+    <p class="section-sub">Built for analysts who live in data every day and can't afford to fight their tools.</p>
+
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="8" height="8" rx="1.5"/>
+            <rect x="12" y="2" width="8" height="8" rx="1.5"/>
+            <rect x="2" y="12" width="8" height="8" rx="1.5"/>
+            <path d="M12 16h8M16 12v8"/>
+          </svg>
+        </div>
+        <h3>Pivot Without the Guesswork</h3>
+        <p>Field previews show sample values right in the field list — so you always know which column you're working with before you pivot it. No more toggling back and forth to remember what a column contains.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h16M3 11h10M3 16h7"/>
+            <circle cx="17" cy="15" r="3.5"/>
+            <path d="M20 18l1.5 1.5"/>
+          </svg>
+        </div>
+        <h3>Filter at the Speed of Thought</h3>
+        <p>Hover any column header and press <kbd style="font-family:monospace;background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:12px">Space</kbd> to open a live filter pane — no clicks, no menus. Date columns automatically group by year, month, and day. Numeric columns get a "greater than" threshold. Hit Esc to clear everything instantly.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 3v16M3 11h16"/>
+            <circle cx="11" cy="11" r="8"/>
+          </svg>
+        </div>
+        <h3>Filter Directly Into the Data</h3>
+        <p>No more maintaining 10 pivot tabs in a workbook. Double-click any value in the Inspect panel to filter the source grid instantly. Close the panel and you're back in the filtered data — no intermediate steps.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6l4 4-4 4M10 14h8"/>
+          </svg>
+        </div>
+        <h3>Pure Data — Zero Noise</h3>
+        <p>TableNav strips away every font, color, border, and conditional-format decoration that accumulates in shared Excel files. What's left is your actual data, in a consistent grid you can read at a glance.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h3>Instant Launch</h3>
+        <p>TableNav starts faster than Excel opens its splash screen. It's a single <code style="font-family:monospace;background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:12px">.exe</code> — no installer, no runtime download prompt, no loading bar. Double-click and your data is there.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 5h16v2H3zM3 10h12v2H3zM3 15h8v2H3z"/>
+          </svg>
+        </div>
+        <h3>Columns That Fit Themselves</h3>
+        <p>Column widths are calculated automatically from your data on every load, edit, and paste. The widest value wins — up to a sensible cap — so you always see as much data as possible without manual dragging.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="16" height="16" rx="2"/>
+            <path d="M7 11h8M11 7v8"/>
+          </svg>
+        </div>
+        <h3>Median as a First-Class Stat</h3>
+        <p>Select any range of cells and the status bar shows sum, count, average, <em>and median</em> — no formula required. Median is the stat analysts actually need and Excel buries behind a function call.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke="#1a6ef5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="5" width="18" height="14" rx="2"/>
+            <path d="M6 5V3M16 5V3M7 12h4M13 12h2M7 15h2"/>
+          </svg>
+        </div>
+        <h3>Multiple Files, One Window</h3>
+        <p>Open as many CSV or XLSX files as you need in a single TableNav window. Switch between them with keyboard shortcuts, and each tab remembers its own filters, pivot state, and scroll position independently.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 22 22" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7" fill="#e8f0fe" stroke="#1a6ef5"/>
+            <circle cx="11" cy="11" r="3.5" fill="#1a6ef5"/>
+          </svg>
+        </div>
+        <h3>Inline Color Previews</h3>
+        <p>When a cell contains a hex color code like <code style="font-family:monospace;background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:12px">#3a86ff</code>, TableNav renders a small color swatch right in the cell. Store design tokens, brand palettes, or status codes cleanly — and still <em>see</em> what you're working with.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- COMPARISON TABLE -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-label">Comparison</div>
+    <h2 class="section-title">TableNav vs. the alternatives</h2>
+    <p class="section-sub">Designed for the tasks analysts repeat a hundred times a day.</p>
+
+    <div class="compare-wrap">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th class="col-tn">TableNav</th>
+            <th>Excel</th>
+            <th>Notepad++</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Opens instantly (&lt;1 second)</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+            <td><span class="check">✓</span></td>
+          </tr>
+          <tr>
+            <td>Live filter pane with search &amp; date grouping</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="partial">~</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td>Inline pivot / group-by without extra tabs</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="partial">~</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td>Median in selection status bar</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td>Hex color previews inline</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td>Auto column widths on every edit</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="partial">~</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td>No formatting clutter from shared files</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+            <td><span class="check">✓</span></td>
+          </tr>
+          <tr>
+            <td>Free &amp; open source</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+            <td><span class="check">✓</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-band">
+  <div class="container">
+    <h2>Ready to open your first file?</h2>
+    <p>Download TableNav free. No account, no install wizard, no catch.</p>
+    <div class="hero-actions">
+      <a href="https://github.com/iswalker/TableNav/releases" class="btn-primary">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Download for Windows
+      </a>
+      <a href="https://github.com/iswalker/TableNav" class="btn-ghost">View Source on GitHub</a>
+    </div>
+    <p class="hero-note" style="margin-top:24px">MIT License &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; No telemetry</p>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>TableNav &nbsp;·&nbsp; <a href="https://github.com/iswalker/TableNav">github.com/iswalker/TableNav</a> &nbsp;·&nbsp; MIT License</p>
+</footer>
+
+</body>
+</html>

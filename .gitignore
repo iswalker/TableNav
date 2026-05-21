@@ -1,0 +1,12 @@
+# Runtime temp files
+TableNav.lastpath
+TableNav.port
+
+# WebView2 browser data cache
+TableNav.exe.WebView2/
+
+# Claude Code session data
+.claude/
+
+# Build artifacts (optional — comment out if you want to ship the .exe)
+# TableNav.exe

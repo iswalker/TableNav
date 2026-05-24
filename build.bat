@@ -24,7 +24,8 @@ echo Building TableNav.exe ...
     /reference:"%~dp0Microsoft.Web.WebView2.Core.dll" ^
     /reference:"%~dp0Microsoft.Web.WebView2.WinForms.dll" ^
     /out:"%~dp0TableNav.exe" ^
-    "%~dp0TableNav.cs"
+    "%~dp0TableNav.cs" ^
+    "%~dp0AssemblyInfo.cs"
 
 if %ERRORLEVEL% neq 0 (
     echo.

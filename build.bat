@@ -30,7 +30,6 @@ echo Building TableNav.exe ...
 if %ERRORLEVEL% neq 0 (
     echo.
     echo BUILD FAILED. See errors above.
-    pause
     exit /b 1
 )
 
@@ -38,4 +37,3 @@ echo.
 echo Build successful!  TableNav.exe is ready.
 echo Run register.bat to add "Open With" support for .csv files.
 echo.
-pause

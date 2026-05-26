@@ -127,6 +127,7 @@ th.cx {
   line-height: 1.3;
   font-size: 12px;
   color: #222;
+  cursor: grab;
 }
 .fb {
   position: absolute;
@@ -174,7 +175,7 @@ td.rn {
   position: sticky;
   left: 0;
   z-index: 5;
-  cursor: pointer;
+  cursor: grab;
   user-select: none;
   vertical-align: middle;
   will-change: transform;
@@ -249,6 +250,11 @@ td.ac {
   position: relative;
   z-index: 10;
 }
+
+/* Value-color highlighting (toggled via body.vc) */
+body.vc td.dc.cv-yes { background: #d7f6db; }
+body.vc td.dc.cv-no  { background: #fbe3d6; }
+body.vc td.dc.cv-tbd { color: #555; }
 
 /* Rectangle selection */
 td.sel {
@@ -325,6 +331,9 @@ th.col-sel { background: #c8d8f4 !important; }
 .ctxitem { padding: 5px 14px; cursor: pointer; color: #222; }
 .ctxitem:hover { background: #f0f7ff; color: var(--accent); }
 .ctxitem.danger:hover { background: #fff0f0; color: #c00; }
+#col-drag-line { position: fixed; top: 0; width: 2px; background: #2d7ff9; z-index: 9998; pointer-events: none; display: none; }
+#row-drag-line { position: fixed; left: 0; height: 2px; background: #2d7ff9; z-index: 9998; pointer-events: none; display: none; }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 
 /* Filter popup */
 .fpop {
@@ -578,10 +587,13 @@ th.col-sel { background: #c8d8f4 !important; }
   <div class="sep"></div>
   <button class="btn" id="bcf" onclick="clearAllFilters()" disabled>&#10005; Clear Filters</button>
   <button class="btn" id="binsp" onclick="toggleInspect()" disabled>&#9635; Inspect</button>
+  <button class="btn" id="bvc" onclick="toggleValueColors()" disabled>Toggle Colors Off</button>
   <span id="fp" style="display:none">No file loaded</span>
   <div id="tabbar"></div>
 </div>
 
+<div id="col-drag-line"></div>
+<div id="row-drag-line"></div>
 <div id="gw">
   <div id="empty">
     <h2>TableNav</h2>
@@ -1025,7 +1037,14 @@ let dragScrollLastTime = 0;
 let rnDragStart = null, rnDragRaf = null;
 let rnSelAnchor = null;   // anchor row-index for shift-arrow row-sel extension
 let colSelAnchor = null;  // anchor col-index for shift-arrow col-sel extension
+let hdrDragX0 = 0, hdrDragY0 = 0; // mousedown position for drag threshold
+let hdrIsDragging = false;  // true once drag threshold exceeded on header
+let hdrDropGap = null;      // 0..nc gap index for column drop target
+let rnDragY0 = 0;           // mousedown Y for drag threshold
+let rnIsDragging = false;   // true once drag threshold exceeded on row number
+let rnDropIdx = undefined;  // raw row index before which to insert (null=end, undefined=not yet set)
 let prevSelState = null; // for efficient DOM diff during drag
+let valueColorsOn = true; // whether Yes/No/TBD cell coloring is active
 let undoState = null;   // { rows, widths } snapshot before last mutation
 let redoState = null;   // { rows, widths } snapshot available for redo
 let loadingSession = 0; // incremented on each load; background parse uses this to abort if a new file opens
@@ -1040,6 +1059,7 @@ let colSel = null;     // column index highlighted via header right-click, or nu
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
+  document.body.classList.add('vc'); // value colors on by default
   tabs = [makeTab()];
   activeTabIdx = 0;
 
@@ -1154,38 +1174,41 @@ window.addEventListener('DOMContentLoaded', async () => {
     dragX = e.clientX; dragY = e.clientY;
 
     // ── Row-number drag ──────────────────────────────────────────────────────
-    if (rnDragStart !== null && !(e.buttons & 1)) { rnDragStart = null; return; }
+    if (rnDragStart !== null && !(e.buttons & 1)) { rnDragStart = null; rnIsDragging = false; hideDragLines(); return; }
     if (rnDragStart !== null) {
+      // Check drag threshold
+      if (!rnIsDragging) {
+        if (Math.abs(dragY - rnDragY0) > 4) rnIsDragging = true;
+        else return;
+      }
       if (rnDragRaf) return;
       rnDragRaf = requestAnimationFrame(function() {
         rnDragRaf = null;
-        if (rnDragStart === null) return;
-        // Try to find a TR under the cursor
-        let targetR = null;
-        const el2 = document.elementFromPoint(dragX, dragY);
-        const trEl = el2 && el2.closest('tr[data-r]');
-        if (trEl && trEl.dataset.r) targetR = +trEl.dataset.r;
-        // Fallback: nearest visible TR by Y coordinate
-        if (targetR === null) {
-          let best = null, bestDist = Infinity;
-          document.querySelectorAll('#tb tr[data-r]').forEach(function(tr2) {
-            const rect2 = tr2.getBoundingClientRect();
-            const mid = (rect2.top + rect2.bottom) / 2;
-            const dist = Math.abs(dragY - mid);
-            if (dist < bestDist) { bestDist = dist; best = +tr2.dataset.r; }
-          });
-          targetR = best;
+        if (rnDragStart === null || !rnIsDragging) return;
+        // Collect visible TRs to find drop gap
+        const trs = Array.from(document.querySelectorAll('#tb tr[data-r]'));
+        if (!trs.length) return;
+        let bestGap = 0, bestDist = Infinity;
+        for (let i = 0; i <= trs.length; i++) {
+          const gapY = i === 0 ? trs[0].getBoundingClientRect().top
+                     : i === trs.length ? trs[trs.length - 1].getBoundingClientRect().bottom
+                     : (trs[i - 1].getBoundingClientRect().bottom + trs[i].getBoundingClientRect().top) / 2;
+          const dist = Math.abs(dragY - gapY);
+          if (dist < bestDist) { bestDist = dist; bestGap = i; }
         }
-        if (targetR === null) return;
-        const si = visMap.get(rnDragStart), ti = visMap.get(targetR);
-        if (si === undefined || ti === undefined) return;
-        const vMin = Math.min(si, ti), vMax = Math.max(si, ti);
-        S.rowSel.clear();
-        for (let vi = vMin; vi <= vMax; vi++) S.rowSel.add(vis[vi]);
-        document.querySelectorAll('tr[data-r]').forEach(function(tr2) {
-          tr2.classList.toggle('rs', S.rowSel.has(+tr2.dataset.r));
-        });
-        updateSelStats();
+        // Map gap to raw row index (before which to insert); null means append at end
+        rnDropIdx = bestGap < trs.length ? +trs[bestGap].dataset.r : null;
+        // Position the blue horizontal indicator
+        const lineY = bestGap === 0 ? trs[0].getBoundingClientRect().top
+                    : bestGap === trs.length ? trs[trs.length - 1].getBoundingClientRect().bottom
+                    : (trs[bestGap - 1].getBoundingClientRect().bottom + trs[bestGap].getBoundingClientRect().top) / 2;
+        const gw = document.getElementById('gw');
+        const gwRect = gw ? gw.getBoundingClientRect() : { left: 0, right: window.innerWidth };
+        const line = document.getElementById('row-drag-line');
+        line.style.top = (lineY - 1) + 'px';
+        line.style.left = gwRect.left + 'px';
+        line.style.width = (gwRect.right - gwRect.left) + 'px';
+        line.style.display = 'block';
       });
       return;
     }
@@ -1209,7 +1232,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   document.addEventListener('mouseup', function() {
     dragOrigin = null;
-    if (rnDragStart !== null) { updateSelStats(); rnDragStart = null; }
+    if (rnDragStart !== null) {
+      if (rnIsDragging && rnDropIdx !== undefined) moveRow(rnDragStart, rnDropIdx);
+      else updateSelStats();
+      rnDragStart = null; rnIsDragging = false; rnDropIdx = undefined;
+      document.body.classList.remove('is-dragging');
+    }
+    hideDragLines();
   });
 
   // ── Header column drag-select ─────────────────────────────────────────────
@@ -1219,43 +1248,74 @@ window.addEventListener('DOMContentLoaded', async () => {
     const th = e.target.closest('th[data-c]');
     if (!th || e.target.closest('.rz') || e.target.closest('.fb')) return;
     e.preventDefault();
-    hdrDragStart = +th.dataset.c;
-    colSelAnchor = hdrDragStart;
+    const c = +th.dataset.c;
+    if (e.shiftKey && colSelAnchor !== null) {
+      // Shift+click: range-select from anchor to clicked column
+      setColSel(Math.min(colSelAnchor, c), Math.max(colSelAnchor, c));
+      updateSelStats();
+      hdrDragStart = null;
+      return;
+    }
+    hdrDragStart = c;
+    hdrIsDragging = false;
+    hdrDropGap = null;
+    colSelAnchor = c;
     hdrDragX = e.clientX; hdrDragY = e.clientY;
+    hdrDragX0 = e.clientX; hdrDragY0 = e.clientY;
+    document.body.classList.add('is-dragging');
     // Cache th elements once so the RAF fallback doesn't re-query the DOM each frame
     hdrDragThs = Array.from(document.querySelectorAll('#gh th[data-c]'));
-    setColSel(hdrDragStart, hdrDragStart);
+    setColSel(c, c);
     updateSelStats();
   });
   document.addEventListener('mousemove', function(e) {
-    if (hdrDragStart === null || !(e.buttons & 1)) { hdrDragStart = null; return; }
-    // Always capture latest coordinates — the RAF closure will read these, not the stale event
+    if (hdrDragStart === null || !(e.buttons & 1)) {
+      if (hdrDragStart !== null) { hdrDragStart = null; hdrIsDragging = false; hideDragLines(); }
+      return;
+    }
     hdrDragX = e.clientX; hdrDragY = e.clientY;
+    // Check drag threshold
+    if (!hdrIsDragging) {
+      if (Math.abs(hdrDragX - hdrDragX0) > 4) hdrIsDragging = true;
+      else return;
+    }
     if (hdrDragRaf) return;
     hdrDragRaf = requestAnimationFrame(function() {
       hdrDragRaf = null;
-      if (hdrDragStart === null) return;
-      let th = null;
-      const el = document.elementFromPoint(hdrDragX, hdrDragY);
-      th = el && (el.matches('th[data-c]') ? el : el.closest('th[data-c]'));
-      // Fast-moving cursor can exit the header row; fall back to nearest column by X
-      if (!th && hdrDragThs) {
-        let best = null, bestDist = Infinity;
-        for (let i = 0; i < hdrDragThs.length; i++) {
-          const r = hdrDragThs[i].getBoundingClientRect();
-          const dist = Math.abs(hdrDragX - (r.left + r.right) / 2);
-          if (dist < bestDist) { bestDist = dist; best = hdrDragThs[i]; }
-        }
-        th = best;
+      if (hdrDragStart === null || !hdrIsDragging || !hdrDragThs) return;
+      const nc = hdrDragThs.length;
+      if (!nc) return;
+      // Find the gap (0..nc) closest to the cursor X
+      let bestGap = 0, bestDist = Infinity;
+      for (let i = 0; i <= nc; i++) {
+        const gapX = i === 0 ? hdrDragThs[0].getBoundingClientRect().left
+                   : i === nc ? hdrDragThs[nc - 1].getBoundingClientRect().right
+                   : (hdrDragThs[i - 1].getBoundingClientRect().right + hdrDragThs[i].getBoundingClientRect().left) / 2;
+        const dist = Math.abs(hdrDragX - gapX);
+        if (dist < bestDist) { bestDist = dist; bestGap = i; }
       }
-      if (!th) return;
-      const c = +th.dataset.c;
-      setColSel(Math.min(hdrDragStart, c), Math.max(hdrDragStart, c));
+      hdrDropGap = bestGap;
+      // Position the blue vertical indicator
+      const lineX = bestGap === 0 ? hdrDragThs[0].getBoundingClientRect().left
+                  : bestGap === nc ? hdrDragThs[nc - 1].getBoundingClientRect().right
+                  : (hdrDragThs[bestGap - 1].getBoundingClientRect().right + hdrDragThs[bestGap].getBoundingClientRect().left) / 2;
+      const gw = document.getElementById('gw');
+      const gwRect = gw ? gw.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const line = document.getElementById('col-drag-line');
+      line.style.left = (lineX - 1) + 'px';
+      line.style.top = gwRect.top + 'px';
+      line.style.height = (gwRect.bottom - gwRect.top) + 'px';
+      line.style.display = 'block';
     });
   });
   document.addEventListener('mouseup', function() {
-    if (hdrDragStart !== null) updateSelStats(); // compute stats after drag completes
-    hdrDragStart = null; hdrDragThs = null;
+    if (hdrDragStart !== null) {
+      if (hdrIsDragging && hdrDropGap !== null) moveColumn(hdrDragStart, hdrDropGap);
+      else updateSelStats();
+    }
+    hdrDragStart = null; hdrIsDragging = false; hdrDropGap = null; hdrDragThs = null;
+    hideDragLines();
+    document.body.classList.remove('is-dragging');
   });
 
   document.addEventListener('mousedown', e => {
@@ -1632,7 +1692,7 @@ function setTitle() {
 }
 
 function setEnabled(on) {
-  ['bsa','bcf','binsp'].forEach(id => document.getElementById(id).disabled = !on);
+  ['bsa','bcf','binsp','bvc'].forEach(id => document.getElementById(id).disabled = !on);
   syncSaveBtn();
   if (on) syncFilterBtns();
   if (!on && inspectOpen) toggleInspect();
@@ -1763,7 +1823,8 @@ function buildOneRow(vi) {
     const cv = row[c] || '';
     const isNum = isNumeric(cv);
     const isDate = !isNum && parseDateToMs(cv) !== null;
-    h += '<td class="dc' + (isSel ? ' sel' : '') + (isAc ? ' ac' : '') + (isNum ? ' nr' : '') + (isDate ? ' dt' : '') + '"'
+    const vcls = cv === 'Yes' ? ' cv-yes' : cv === 'No' ? ' cv-no' : cv === 'TBD' ? ' cv-tbd' : '';
+    h += '<td class="dc' + (isSel ? ' sel' : '') + (isAc ? ' ac' : '') + (isNum ? ' nr' : '') + (isDate ? ' dt' : '') + vcls + '"'
        + ' data-r="' + r + '" data-c="' + c + '"'
        + ' onclick="clickCell(event,' + r + ',' + c + ')"'
        + ' ondblclick="editCell(' + r + ',' + c + ')">'
@@ -2757,6 +2818,7 @@ function clickCell(e, r, c) {
 
 function editCell(r, c) {
   if (editing) commitEdit();
+  if (popup) closePopup();
   const td = document.querySelector('td[data-r="' + r + '"][data-c="' + c + '"]');
   if (!td || td.dataset.phRow) return;
   S.active = { r, c };
@@ -2961,17 +3023,29 @@ function rnDragDown(e, r) {
   if (e.ctrlKey || e.metaKey) {
     // Ctrl+click: toggle individual row, no drag
     if (S.rowSel.has(r)) S.rowSel.delete(r); else S.rowSel.add(r);
-    rnDragStart = null;
+    rnDragStart = null; rnIsDragging = false;
+  } else if (e.shiftKey && rnSelAnchor !== null) {
+    // Shift+click: range-select from anchor to r
+    const si = visMap.get(rnSelAnchor), ti = visMap.get(r);
+    if (si !== undefined && ti !== undefined) {
+      S.rowSel.clear();
+      for (let vi = Math.min(si, ti); vi <= Math.max(si, ti); vi++) S.rowSel.add(vis[vi]);
+    }
+    rnDragStart = null; rnIsDragging = false;
   } else {
     // Normal click / drag start
     if (S.rowSel.size === 1 && S.rowSel.has(r)) {
       S.rowSel.clear();
-      rnDragStart = null;
+      rnDragStart = null; rnIsDragging = false;
     } else {
       S.rowSel.clear();
       S.rowSel.add(r);
       rnDragStart = r;
+      rnDragY0 = e.clientY;
       rnSelAnchor = r;
+      rnIsDragging = false;
+      rnDropIdx = undefined;
+      document.body.classList.add('is-dragging');
     }
   }
   document.querySelectorAll('tr[data-r]').forEach(function(tr) {
@@ -3108,7 +3182,9 @@ function headerContextMenu(e, c) {
   div.style.left = x + 'px';
   div.style.top  = y + 'px';
   const label = count > 1 ? 'Delete ' + count + ' Columns' : 'Delete Column';
-  div.innerHTML = '<div class="ctxitem danger" onclick="deleteColumns()">' + label + '</div>';
+  div.innerHTML =
+    '<div class="ctxitem" onclick="insertColumn()">Insert Column Left</div>' +
+    '<div class="ctxitem danger" onclick="deleteColumns()">' + label + '</div>';
   document.body.appendChild(div);
   popup = div;
 }
@@ -3133,7 +3209,9 @@ function rowContextMenu(e, r) {
   div.style.left = x + 'px';
   div.style.top  = y + 'px';
   const label = count > 1 ? 'Delete ' + count + ' Rows' : 'Delete Row';
-  div.innerHTML = '<div class="ctxitem danger" onclick="delRows()">' + label + '</div>';
+  div.innerHTML =
+    '<div class="ctxitem" onclick="insertRow()">Insert Row Before</div>' +
+    '<div class="ctxitem danger" onclick="delRows()">' + label + '</div>';
   document.body.appendChild(div);
   popup = div;
 }
@@ -3163,12 +3241,117 @@ function deleteColumns() {
   buildGrid();
 }
 
+function insertColumn() {
+  closePopup();
+  if (!colSel) return;
+  const c = colSel.c1; // insert LEFT of the leftmost selected column
+  const colName = 'Column ' + (c + 1); // 1-based position label
+  snapshot();
+  S.rows[0].splice(c, 0, colName);
+  for (let r = 1; r < S.rows.length; r++) S.rows[r].splice(c, 0, '');
+  S.widths.splice(c, 0, Math.min(200, Math.max(50, colName.length * 7 + 28)));
+  const nf = {}, nd = {}, nn = {};
+  for (const ci of Object.keys(S.filters))     { const n = +ci; nf[n < c ? n : n + 1] = S.filters[ci]; }
+  for (const ci of Object.keys(S.dateFilters)) { const n = +ci; nd[n < c ? n : n + 1] = S.dateFilters[ci]; }
+  for (const ci of Object.keys(S.numFilters))  { const n = +ci; nn[n < c ? n : n + 1] = S.numFilters[ci]; }
+  S.filters = nf; S.dateFilters = nd; S.numFilters = nn;
+  if (S.sort && S.sort.c >= c) S.sort.c += 1;
+  clearColSel();
+  S.rowSel.clear(); S.cellSel = null; S.active = null;
+  S.dirty = true; setTitle();
+  buildGrid();
+  // Open the header editor so the user can immediately rename the column
+  const th = document.querySelector('#gh th[data-c="' + c + '"]');
+  if (th) startHeaderEdit(c, th);
+}
+
 function delRows() {
   if (!S.rowSel.size) return;
   closePopup();
   snapshot();
   S.rows = S.rows.filter((_, i) => i === 0 || !S.rowSel.has(i));
   S.rowSel.clear(); S.dirty = true; setTitle(); refreshRows();
+}
+
+function insertRow() {
+  closePopup();
+  if (!S.rowSel.size) return;
+  // Insert before the earliest selected row (minimum index, skip row 0 header)
+  const minRow = Math.max(1, Math.min(...S.rowSel));
+  snapshot();
+  const blankRow = new Array(S.rows[0].length).fill('');
+  S.rows.splice(minRow, 0, blankRow);
+  clearColSel();
+  S.rowSel.clear(); S.cellSel = null; S.active = null;
+  S.dirty = true; setTitle(); refreshRows();
+}
+
+function hideDragLines() {
+  document.getElementById('col-drag-line').style.display = 'none';
+  document.getElementById('row-drag-line').style.display = 'none';
+}
+
+function moveColumn(fromC, toGap) {
+  // toGap is the gap index 0..nc before which the column lands
+  if (toGap === fromC || toGap === fromC + 1) return; // no-op: dropping on itself
+  snapshot();
+  // After removing fromC, the effective insert index shifts if moving right
+  const insertAt = toGap > fromC ? toGap - 1 : toGap;
+  // Move cell values in every row
+  for (let r = 0; r < S.rows.length; r++) {
+    const val = S.rows[r].splice(fromC, 1)[0];
+    S.rows[r].splice(insertAt, 0, val);
+  }
+  // Move column width
+  const w = S.widths.splice(fromC, 1)[0];
+  S.widths.splice(insertAt, 0, w);
+  // Remap column-based state
+  function remapC(c) {
+    if (c === fromC) return insertAt;
+    if (fromC < insertAt && c > fromC && c <= insertAt) return c - 1;
+    if (fromC > insertAt && c >= insertAt && c < fromC) return c + 1;
+    return c;
+  }
+  const nf = {}, nd = {}, nn = {};
+  for (const ci of Object.keys(S.filters))     nf[remapC(+ci)] = S.filters[ci];
+  for (const ci of Object.keys(S.dateFilters)) nd[remapC(+ci)] = S.dateFilters[ci];
+  for (const ci of Object.keys(S.numFilters))  nn[remapC(+ci)] = S.numFilters[ci];
+  S.filters = nf; S.dateFilters = nd; S.numFilters = nn;
+  if (S.sort) S.sort.c = remapC(S.sort.c);
+  clearColSel();
+  S.cellSel = null; S.active = null; S.rowSel.clear();
+  S.dirty = true; setTitle();
+  buildGrid();
+  // Re-select the moved column
+  setColSel(insertAt, insertAt);
+  colSelAnchor = insertAt;
+  updateSelStats();
+}
+
+function moveRow(fromR, toR) {
+  // fromR: raw row index to move; toR: raw row index before which to insert (null = end)
+  if (toR === fromR || toR === fromR + 1) return; // no-op: dropping on itself
+  if (fromR === 0) return; // can't move the header row
+  snapshot();
+  const row = S.rows.splice(fromR, 1)[0];
+  // Adjust insertion index after removal
+  let insertAt;
+  if (toR === null) {
+    insertAt = S.rows.length; // append at end
+  } else {
+    insertAt = toR > fromR ? toR - 1 : toR;
+    if (insertAt < 1) insertAt = 1; // keep header at 0
+  }
+  S.rows.splice(insertAt, 0, row);
+  S.rowSel.clear(); S.cellSel = null; S.active = null;
+  S.dirty = true; setTitle(); refreshRows();
+  // Re-select the moved row
+  S.rowSel.add(insertAt);
+  document.querySelectorAll('tr[data-r]').forEach(function(tr) {
+    tr.classList.toggle('rs', S.rowSel.has(+tr.dataset.r));
+  });
+  rnSelAnchor = insertAt;
+  updateSelStats();
 }
 
 function clearSelCells() {
@@ -3492,9 +3675,60 @@ function onKey(e) {
 }
 
 // ── File I/O ─────────────────────────────────────────────────────────────────
+function trimEmptyRowsAndCols() {
+  const isBlank = function(v) { return v === '' || v === null || v === undefined; };
+  let changed = false;
+
+  // ── Drop all-blank data rows (never touch row 0 = header) ──────────────────
+  const rowsBefore = S.rows.length;
+  S.rows = S.rows.filter(function(row, i) {
+    if (i === 0) return true;
+    return row.some(function(v) { return !isBlank(v); });
+  });
+  if (S.rows.length !== rowsBefore) changed = true;
+
+  // ── Drop all-blank columns whose header is a default name (e.g. "Column 7") ─
+  const defaultColRe = /^Column \d+$/;
+  const nc = S.rows[0].length;
+  const removeSet = new Set();
+  for (let c = 0; c < nc; c++) {
+    if (!defaultColRe.test(S.rows[0][c] || '')) continue;
+    if (S.rows.slice(1).every(function(row) { return isBlank(row[c]); })) removeSet.add(c);
+  }
+  if (removeSet.size > 0) {
+    changed = true;
+    // Build old→new column index map for remapping filters/sort
+    const newIdx = [];
+    let ni = 0;
+    for (let c = 0; c < nc; c++) newIdx[c] = removeSet.has(c) ? -1 : ni++;
+    S.rows    = S.rows.map(function(row) { return row.filter(function(_, c) { return !removeSet.has(c); }); });
+    S.widths  = S.widths.filter(function(_, c) { return !removeSet.has(c); });
+    function remapF(obj) {
+      const out = {};
+      for (const ci of Object.keys(obj)) {
+        const n = +ci, mapped = newIdx[n];
+        if (mapped !== undefined && mapped !== -1) out[mapped] = obj[ci];
+      }
+      return out;
+    }
+    S.filters = remapF(S.filters);
+    S.dateFilters = remapF(S.dateFilters);
+    S.numFilters  = remapF(S.numFilters);
+    if (S.sort) { if (newIdx[S.sort.c] === -1) S.sort = null; else S.sort.c = newIdx[S.sort.c]; }
+  }
+
+  if (changed) {
+    clearColSel();
+    S.cellSel = null; S.active = null; S.rowSel.clear();
+    buildGrid();
+  }
+  return changed;
+}
+
 async function saveFile(as) {
   if (!S.rows.length) return;
   if (editing) commitEdit();
+  trimEmptyRowsAndCols();
 
   const btn = document.getElementById('bsv');
   btn.innerHTML = 'Saving…';
@@ -3746,6 +3980,12 @@ const Insp = { fav: [], sumby: [], expanded: new Set(), dateGroup: 'year', sortB
 let ipDragSrc = null; // { col, zone } or { col } for field-list drag
 let ipSumbyDropTarget = null; // { el, before } — current drag-over target in sumby list
 let ipSecOpen = { fav: true, sumby: true };
+
+function toggleValueColors() {
+  valueColorsOn = !valueColorsOn;
+  document.body.classList.toggle('vc', valueColorsOn);
+  document.getElementById('bvc').textContent = valueColorsOn ? 'Toggle Colors Off' : 'Toggle Colors On';
+}
 
 function toggleInspect() {
   inspectOpen = !inspectOpen;
